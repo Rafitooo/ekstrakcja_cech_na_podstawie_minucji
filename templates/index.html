@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="pl">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <title>System Ekstrakcji Minucji</title>
+
+    <style>
+
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1350px;
+            margin: 25px auto;
+            background: #f4f6f8;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+            margin-bottom: 25px;
+        }
+
+        .controls {
+            margin: 20px 0;
+        }
+
+        .images {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 35px;
+            margin: 25px 0;
+            flex-wrap: wrap;
+        }
+
+        .image-box {
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            width: 290px;
+        }
+
+        img {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 360px;
+            height: auto;
+            max-height: 420px;
+            object-fit: contain;
+            display: block;
+            margin: 0 auto;
+            background: #fff;
+        }
+
+        button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        button:hover {
+            background: #125ea8;
+        }
+
+        .error {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+
+        pre {
+            background: #f0f2f5;
+            padding: 15px;
+            max-height: 220px;
+            overflow-y: auto;
+            font-size: 13px;
+            text-align: left;
+            border-radius: 6px;
+            max-width: 800px;
+            margin: 10px auto;
+        }
+
+        table {
+            width: 90%;
+            margin: 15px auto;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+        }
+
+        th {
+            background: #eef1f5;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <h1>System Ekstrakcji Cech na Podstawie Odcisku Palca</h1>
+
+    <div class="card">
+
+        <h3>Ekstrakcja Minucji (Preprocessing + Sieć CNN)</h3>
+
+        <div class="controls">
+
+            <input
+                type="file"
+                id="fileInput"
+                accept=".bmp,.png,.jpg"
+                onchange="pokazPodglad()"
+            >
+
+            <button onclick="analizujOdcisk()">
+                Analizuj odcisk
+            </button>
+
+        </div>
+
+        <p id="errorMsg" class="error"></p>
+
+        <div
+            class="images"
+            id="imagesContainer"
+            style="display:none;"
+        >
+
+            <div class="image-box">
+
+                <h4>1. Wgrany odcisk (Podglad)</h4>
+
+                <img id="previewImg" src="">
+
+            </div>
+
+            <div
+                class="image-box"
+                id="skelBox"
+                style="display:none;"
+            >
+
+                <h4>2. Po scienianiu (Thinning)</h4>
+
+                <img id="skelImg" src="">
+
+            </div>
+
+            <div
+                class="image-box"
+                id="visBox"
+                style="display:none;"
+            >
+
+                <h4>3. Wykryte minucje (na oryginale)</h4>
+
+                <img id="visImg" src="">
+
+            </div>
+
+        </div>
+
+        <div
+            id="resultSection"
+            style="display:none;"
+        >
+
+            <p style="font-size: 17px;">
+
+                <b>Wykryte minucje lacznie:</b>
+
+                <span id="total"></span>
+
+                &nbsp;|&nbsp;
+
+                <span style="color:green;">
+
+                    <b>Zakonczenia (Ending):</b>
+
+                    <span id="endings"></span>
+
+                </span>
+
+                &nbsp;|&nbsp;
+
+                <span style="color:red;">
+
+                    <b>Rozdwojenia (Bifurcation):</b>
+
+                    <span id="bifurcations"></span>
+
+                </span>
+
+            </p>
+
+            <div>
+
+                <button onclick="window.location.href='/api/export/csv'">
+                    Eksportuj do CSV
+                </button>
+
+                <button onclick="window.location.href='/api/export/json'">
+                    Eksportuj do JSON
+                </button>
+
+            </div>
+
+            <h4>Wygenerowany wektor cech (JSON):</h4>
+
+            <pre id="jsonOutput"></pre>
+
+            <h4>Ostatnie zapisy w bazie danych (biometria.db):</h4>
+
+            <table>
+
+                <thead>
+
+                    <tr>
+                        <th>ID</th>
+                        <th>Plik</th>
+                        <th>Minucje lacznie</th>
+                        <th>Zakonczenia</th>
+                        <th>Rozdwojenia</th>
+                        <th>Data</th>
+                    </tr>
+
+                </thead>
+
+                <tbody id="historyBody"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+    <script>
+
+        async function pokazPodglad() {
+
+            const fileInput = document.getElementById('fileInput');
+
+            const errorMsg = document.getElementById('errorMsg');
+
+            errorMsg.innerText = "";
+
+            if (!fileInput.files || !fileInput.files[0]) {
+                return;
+            }
+
+            try {
+
+                const formData = new FormData();
+
+                formData.append(
+                    "file",
+                    fileInput.files[0]
+                );
+
+                const res = await fetch(
+                    "/api/preview",
+                    {
+                        method: "POST",
+                        body: formData
+                    }
+                );
+
+                const json = await res.json();
+
+                if (!res.ok) {
+
+                    throw new Error(
+                        json.error || "Nie udalo sie wczytac obrazu."
+                    );
+
+                }
+
+                document.getElementById('previewImg').src =
+                    "data:image/png;base64," + json.oryginal_b64;
+
+                document.getElementById('imagesContainer').style.display =
+                    'flex';
+
+                document.getElementById('skelBox').style.display =
+                    'none';
+
+                document.getElementById('visBox').style.display =
+                    'none';
+
+                document.getElementById('resultSection').style.display =
+                    'none';
+
+            } catch (err) {
+
+                errorMsg.innerText = err.message;
+
+            }
+
+        }
+
+
+        async function analizujOdcisk() {
+
+            const fileInput = document.getElementById('fileInput');
+
+            const errorMsg = document.getElementById('errorMsg');
+
+            errorMsg.innerText = "";
+
+            if (!fileInput.files || !fileInput.files.length) {
+
+                errorMsg.innerText =
+                    "Wybierz plik ze zdjeciem odcisku!";
+
+                return;
+
+            }
+
+            try {
+
+                const formData = new FormData();
+
+                formData.append(
+                    "file",
+                    fileInput.files[0]
+                );
+
+                const res = await fetch(
+                    "/api/extract",
+                    {
+                        method: "POST",
+                        body: formData
+                    }
+                );
+
+                const json = await res.json();
+
+                if (!res.ok) {
+
+                    throw new Error(
+                        json.error || "Wystapil blad podczas analizy."
+                    );
+
+                }
+
+                document.getElementById('previewImg').src =
+                    "data:image/png;base64," + json.oryginal_b64;
+
+                document.getElementById('skelImg').src =
+                    "data:image/png;base64," + json.szkielet_b64;
+
+                document.getElementById('visImg').src =
+                    "data:image/png;base64," + json.wizualizacja_b64;
+
+
+                document.getElementById('imagesContainer').style.display =
+                    'flex';
+
+                document.getElementById('skelBox').style.display =
+                    'block';
+
+                document.getElementById('visBox').style.display =
+                    'block';
+
+
+                document.getElementById('resultSection').style.display =
+                    'block';
+
+                document.getElementById('total').innerText =
+                    json.data.statystyki.liczba_minucji;
+
+                document.getElementById('endings').innerText =
+                    json.data.statystyki.zakonczenia_linii;
+
+                document.getElementById('bifurcations').innerText =
+                    json.data.statystyki.rozdwojenia_linii;
+
+                document.getElementById('jsonOutput').innerText =
+                    JSON.stringify(json.data, null, 2);
+
+
+                const tbody = document.getElementById('historyBody');
+
+                tbody.innerHTML = "";
+
+                json.historia.forEach(w => {
+
+                    const row = document.createElement('tr');
+
+                    w.forEach(value => {
+
+                        const cell = document.createElement('td');
+
+                        cell.textContent =
+                            value == null ? "" : value;
+
+                        row.appendChild(cell);
+
+                    });
+
+                    tbody.appendChild(row);
+
+                });
+
+            } catch (err) {
+
+                errorMsg.innerText = err.message;
+
+                document.getElementById('resultSection').style.display =
+                    'none';
+
+            }
+
+        }
+
+    </script>
+
+</body>
+
+</html>
