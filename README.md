@@ -113,9 +113,5 @@ Wartość ta dotyczy klasyfikacji lokalnych fragmentów odcisku, a nie skuteczno
 - Zapisywanie wyników w SQLite.
 - Eksport danych do JSON i CSV.
 
-## Ograniczenia
 
-Projekt skupia się na ekstrakcji cech biometrycznych.
-
-Nie jest kompletnym systemem uwierzytelniania użytkowników. Funkcja porównywania wektorów minucji ma charakter eksperymentalny.
 
